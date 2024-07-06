@@ -5,6 +5,7 @@ This repo reproduces [Andrej Karpathy's nano-gpt exercise](https://www.youtube.c
 
 
 # Dataset (tiny-shakespeare)
+Dowload data
 ```console
 wget https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 ```
