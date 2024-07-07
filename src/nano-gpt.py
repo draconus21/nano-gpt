@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -202,37 +203,41 @@ class BigramLanguageModel(nn.Module):
         return idx
 
 
+def infer_to_file(model, epoch, max_new_tokens=500):
+    start = torch.zeros((1, 1), dtype=torch.long, device=device)
+    res = decode(model.generate(start, max_new_tokens=max_new_tokens)[0].tolist())
+    result = this_dir / f"../results/result_{epoch}.txt"
+    if not Path(result).parent.exists():
+        os.makedirs(result.parent)
+
+    with open(result, "w") as f:
+        f.write(res)
+    return res
+
+
 model = BigramLanguageModel(n_layer=n_layer, n_head=n_head, n_embed=n_embed, block_size=block_size, dropout=dropout)
 model.to(device)
 
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-for epoch in range(max_iters):
+try:
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    for epoch in range(max_iters):
 
-    # get btach of data
-    xb, yb = get_batch("train")
+        # get btach of data
+        xb, yb = get_batch("train")
 
-    # evaluate loss
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+        # evaluate loss
+        logits, loss = model(xb, yb)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
 
-    if epoch % eval_interval == 0:
-        losses = estimate_loss()
-        print(f"{epoch}: {losses}")
-
-print("*" * 25, "final", "*" * 25)
-losses = estimate_loss()
-print(f"{epoch}: {losses}")
-start = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(model.generate(start, max_new_tokens=500)[0].tolist()))
-print("*" * 25)
-
-
-start = torch.zeros((1, 1), dtype=torch.long, device=device)
-res = decode(model.generate(start, max_new_tokens=10000)[0].tolist())
-result = this_dir / "../data/result.txt"
-
-with open(result, "w") as f:
-    f.write(res)
+        if epoch % eval_interval == 0:
+            losses = estimate_loss()
+            print(f"{epoch}: {losses}")
+            infer_to_file(model, epoch=epoch)
+finally:
+    print("*" * 25, "final", "*" * 25)
+    losses = estimate_loss()
+    print(f"{epoch}: {losses}")
+    infer_to_file(model, epoch=epoch, max_new_tokens=10000)
