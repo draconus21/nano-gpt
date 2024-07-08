@@ -1,7 +1,9 @@
 import os
+import time
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from tempfile import TemporaryDirectory
 from pathlib import Path
 
 batch_size = 64
@@ -21,8 +23,14 @@ splits = ["train", "valid"]
 
 torch.manual_seed(1337)
 
-# get data
 this_dir = Path(__file__).parent
+exp_dir = this_dir.parent / "runs"
+if not exp_dir.exists():
+    os.makedirs(exp_dir)
+
+BEST_PARAMS_PATH = "best_model_params.pt"
+
+# get data
 data_f = this_dir / "../data/input.txt"
 with open(data_f, "r") as f:
     t = f.read()
@@ -203,10 +211,24 @@ class BigramLanguageModel(nn.Module):
         return idx
 
 
+model = BigramLanguageModel(n_layer=n_layer, n_head=n_head, n_embed=n_embed, block_size=block_size, dropout=dropout)
+model.to(device)
+
+
+optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+since = time.time()
+best_loss = float("inf")
+
+tempdir = TemporaryDirectory(prefix="exp-", dir=exp_dir).name
+best_model_params_path = (Path(tempdir) / BEST_PARAMS_PATH).resolve()
+results_path = (Path(tempdir) / "results").resolve()
+best_loss = float("inf")
+
+
 def infer_to_file(model, epoch, max_new_tokens=500):
     start = torch.zeros((1, 1), dtype=torch.long, device=device)
     res = decode(model.generate(start, max_new_tokens=max_new_tokens)[0].tolist())
-    result = this_dir / f"../results/result_{epoch}.txt"
+    result = results_path / f"result_{epoch}.txt"
     if not Path(result).parent.exists():
         os.makedirs(result.parent)
 
@@ -215,14 +237,13 @@ def infer_to_file(model, epoch, max_new_tokens=500):
     return res
 
 
-model = BigramLanguageModel(n_layer=n_layer, n_head=n_head, n_embed=n_embed, block_size=block_size, dropout=dropout)
-model.to(device)
+def _save_best():
+    print(f"best params [loss: {best_loss:.3f}] saved to: {best_model_params_path}")
+    torch.save(model.state_dict(), best_model_params_path)
 
 
 try:
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     for epoch in range(max_iters):
-
         # get btach of data
         xb, yb = get_batch("train")
 
@@ -236,8 +257,20 @@ try:
             losses = estimate_loss()
             print(f"{epoch}: {losses}")
             infer_to_file(model, epoch=epoch)
+
+            if losses["valid"] < best_loss:
+                best_loss = losses["valid"]
+                _save_best()
+
+    time_elapsed = time.time() - since
+    print(f"Training complete in {time_elapsed//60:.0f}m {time_elapsed%60:.0f}s")
 finally:
+    time_elapsed = time.time() - since
+    print(f"Training interrupted after {time_elapsed//60:.0f}m {time_elapsed%60:.0f}s")
     print("*" * 25, "final", "*" * 25)
     losses = estimate_loss()
-    print(f"{epoch}: {losses}")
+    print(f"{losses}")
+    if losses["valid"] < best_loss:
+        best_loss = losses["valid"]
+        _save_best()
     infer_to_file(model, epoch=epoch, max_new_tokens=10000)
